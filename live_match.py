@@ -2,7 +2,8 @@
 
 import cv2
 from capture import get_video
-
+from time import time, sleep
+from plotjuggler import send
 
 orb = cv2.ORB_create()
 matcher = cv2.BFMatcher()
@@ -39,11 +40,20 @@ def ratio_test(matches, ratio=0.75):
     return good
 
 
+def sync_time(target_fps):
+    spf = 1.0 / target_fps
+    curr = time() % spf
+    mspt = curr * 1000
+    wait = spf - curr
+    wait_ms = wait * 1000
+    send({'mspt': mspt, 'wait': wait_ms})
+    sleep(wait)
+
+
 if __name__ == '__main__':
     last_frame, last_frame_kp, last_frame_des = get_video_with_data()
 
-    # 40 is ~2 seconds of data
-    for _ in range(40):
+    while 1:
         frame, frame_kp, frame_des = get_video_with_data()
 
         if frame_des is None:
@@ -53,6 +63,8 @@ if __name__ == '__main__':
         # matches = matcher.match(last_frame_des, frame_des)
         matches = matcher.knnMatch(last_frame_des, frame_des, k=2)
         # matches = flann.knnMatch(last_frame_des, frame_des, k=2)
+        
+        send({'matches': len(matches)})
 
         # Apply ratio test
         matches = ratio_test(matches)
@@ -68,3 +80,5 @@ if __name__ == '__main__':
             break
 
         last_frame, last_frame_kp, last_frame_des = frame, frame_kp, frame_des
+
+        sync_time(20)
