@@ -39,8 +39,59 @@ def ratio_test(matches, ratio=0.75):
     return good
 
 
+class Track:
+    def __init__(self, id_):
+        self.id = id_
+        self.points = []
+
+    def add_point(self, u, v, t):
+        self.points.append({'u': u, 'v': v, 't': t})
+
+    def serialize(self):
+        return {'id': self.id, 'points': self.points}
+
+
+class Tracker:
+    def __init__(self):
+        self.tracks = []
+        self.live_tracks = {}
+        self.t = 0
+
+    def add_frame(self, matches, train_kp):
+        tracks = {}
+        live_tracks = self.live_tracks
+
+        for match in matches:
+            queryIdx = match[0].queryIdx
+            trainIdx = match[0].trainIdx
+
+            if queryIdx in live_tracks:
+                track = live_tracks[queryIdx]
+            else:
+                track = Track(len(self.tracks))
+                self.tracks.append(track)
+
+            u, v = train_kp[trainIdx].pt
+
+            track.add_point(u, v, self.t)
+            tracks[trainIdx] = track
+
+        self.live_tracks = tracks
+        self.t += 1
+
+    def serialize(self, filter_len=None):
+        tracks = self.tracks
+        if filter_len is not None:
+            tracks = list(filter(lambda t: len(t.points) >= filter_len, self.tracks))
+        return [t.serialize() for t in tracks]
+
+
 if __name__ == '__main__':
+    from statistics import mean, stdev
+
     last_frame, last_frame_kp, last_frame_des = get_video_with_data()
+
+    tracker = Tracker()
 
     # 40 is ~2 seconds of data
     for _ in range(40):
@@ -57,6 +108,8 @@ if __name__ == '__main__':
         # Apply ratio test
         matches = ratio_test(matches)
 
+        tracker.add_frame(matches, frame_kp)
+
         # matches = sorted(matches, key=lambda x: x.distance)
 
         final_img = cv2.drawMatchesKnn(last_frame, last_frame_kp,
@@ -68,3 +121,23 @@ if __name__ == '__main__':
             break
 
         last_frame, last_frame_kp, last_frame_des = frame, frame_kp, frame_des
+
+    print('Stats')
+    track_len = [len(t.points) for t in tracker.tracks]
+    print('N Tracks', len(track_len))
+    print('Min', min(track_len), 'Max', max(track_len))
+    print('Avg', mean(track_len), '+-', stdev(track_len))
+
+    def n_above(n):
+        above = filter(lambda t: t >= n, track_len)
+        print('N >=', n, 'is', len(list(above)))
+
+    n_above(30)
+    n_above(20)
+    n_above(10)
+
+    print('Dumping tracks')
+    import yaml
+    with open('tracks.yaml', 'w') as f:
+        data = tracker.serialize(filter_len=20)
+        yaml.safe_dump(data, f)
